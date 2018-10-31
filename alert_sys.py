@@ -20,6 +20,11 @@ class Alert:
     def updateStatuses(self):
         self.statuses = self.sql_eng.ReadTable("CarsStatus", caching=False)
 
+    def getOwnerEmail(self, acc_id):
+        email = self.sql_eng.Select("SELECT Adresa_email FROM Users WHERE Flota_detinuta = " + str(acc_id))
+        email = email['Adresa_email'][0]
+        return email
+
     def getChanges(self, oldStatuses):
         df_stacked = (self.statuses != oldStatuses).stack()
         changed = df_stacked[df_stacked]
@@ -32,18 +37,24 @@ class Alert:
         car_ids = list(changes.index.labels[0])
         return {'changes_df': changes.copy(), 'cars': car_ids}
 
-    def sendMailTo(self, car_id):
+    def sendMailTo(self, car_id, alerta="None"):
         print("Sending mail to owner of " + str(car_id))
-        car_details = self.sql_eng.Select("SELECT Name, Description FROM Cars WHERE ID = " + str(car_id))
+        car_details = self.sql_eng.Select("SELECT AccountID, Name, Description FROM Cars WHERE ID = " + str(car_id))
         msg = MIMEMultipart()
         password = self.mail_data['mail_pass']
-        msg['From'] = self.mail_data['mail_sender']
-        msg['To'] = "support@ithit.ro"
+        msg['From'] = "GoDrive Carbox "
+        msg['To'] = self.getOwnerEmail(car_details['AccountID'][0])
         msg['Subject'] = "GoDrive Carbox - Alerta masina " + car_details['Name'][0]
         # Create the body of the message (a plain-text and an HTML version).
         # text = "Test"
-        text = "<html> <body> Buna ziua, \n Va informam ca masina dumneavoastra <strong>" + car_details['Name'][
-            0] + "</strong>" + " cu descrierea <em>" + car_details['Description'][0] + "</em> are o noua alerta."
+        text = "<html> <body> Va informam ca masina dumneavoastra <strong>" + car_details['Name'][0] + "</strong>" + \
+               " cu descrierea <em>" + car_details['Description'][0] + "</em> are urmatoarea <strong>alerta</strong>:" \
+                                                                       " <em style='color: red'>" + alerta + "</em>" \
+               + "<footer>" \
+                 "<br/><br/><hr/> Acesta este un mesaj de alerta generat automat cu scopul de a va informa in privinta " \
+                 "functionarii masinii dumneavoastra. <br/>" \
+               + "Va rugam sa nu faceti reply la acest email! </footer></body></html>"
+
         part1 = MIMEText(text, 'html')
         msg.attach(part1)
         print("Message created")
@@ -54,9 +65,9 @@ class Alert:
         server.ehlo()
         server.starttls()
         server.ehlo()
-        server.login(msg['From'], password)
+        server.login(self.mail_data['mail_sender'], password)
         print("Logged in, trying to send mail")
-        server.sendmail(msg['From'], msg['To'], msg.as_string())
+        server.sendmail(self.mail_data['mail_sender'], msg['To'], msg.as_string())
         print("Mail sent")
         server.quit()
 
@@ -74,8 +85,13 @@ class Alert:
                 # print (self.statuses)
             else:
                 print('Change found... Alerting... Please wait')
+                iterator = 0
                 for id in changes['cars']:
-                    self.sendMailTo(id + 1)
+                    alerta = changes['changes_df']['to'][iterator]
+                    print(alerta)
+                    self.sendMailTo(id + 1, alerta)
+                    iterator = iterator + 1
+
             oldStatuses = self.statuses.copy()
 
     def getStatuses(self):
